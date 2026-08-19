@@ -1,0 +1,30 @@
+{
+    "name": "metrictower/mainnet-client",
+    "description": "Client library for the funnypot-mainnet IP-reputation service (report + check).",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": ">=7.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.5"
+    },
+    "suggest": {
+        "ext-curl": "Preferred HTTP transport; falls back to stream contexts when absent.",
+        "ext-pdo_sqlite": "For the bundled PdoSqliteReportQueue (report path only).",
+        "psr/simple-cache": "Inject any PSR-16 cache as the verdict/breaker store via Psr16Cache."
+    },
+    "autoload": {
+        "psr-4": {
+            "Funnypot\\Mainnet\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Funnypot\\Mainnet\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
