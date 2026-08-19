@@ -163,7 +163,8 @@ final class ClientCheckTest extends TestCase
         $this->client()->check('203.0.113.7');
         $call = $this->transport->lastCall();
         $this->assertStringStartsWith('https://mainnet.example/v1/check?', $call['url']);
-        $this->assertStringContainsString('ipAddress=203.0.113.7', $call['url']);
+        $this->assertStringContainsString('ip=203.0.113.7', $call['url']);
+        $this->assertStringContainsString('max_age_days=', $call['url']);
         $this->assertContains('Key: secret-key', $call['headers']);
         $this->assertStringNotContainsString('secret-key', $call['url'], 'the key is never in the URL');
     }

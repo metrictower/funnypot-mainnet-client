@@ -93,8 +93,8 @@ final class Client
         $maxAge = $this->maxAge($opts);
         $sensitivity = $this->sensitivity($opts);
         $query = array(
-            'ipAddress' => $ip,
-            'maxAgeInDays' => $maxAge,
+            'ip' => $ip,
+            'max_age_days' => $maxAge,
             'sensitivity' => $sensitivity,
         );
         if (!empty($opts['verbose'])) {
