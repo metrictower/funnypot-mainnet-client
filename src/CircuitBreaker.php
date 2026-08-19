@@ -153,6 +153,20 @@ final class CircuitBreaker
         }
     }
 
+    /**
+     * Directly open the breaker for one transport cooldown. The report drain calls this after its own
+     * 3-consecutive-transport-failure abort budget (N6) so the shared marker fast-skips the next tick and
+     * the check path. Distinct from recordTransportFailure()'s threshold accumulation.
+     */
+    public function tripTransport()
+    {
+        try {
+            $this->write(array('failures' => 0, 'until' => $this->now() + $this->jitter($this->cooldownSecs), 'reason' => 'transport'));
+        } catch (Throwable $e) {
+            // best-effort
+        }
+    }
+
     /** Current open reason ('' when closed). Observability for logging/tests. */
     public function reason()
     {

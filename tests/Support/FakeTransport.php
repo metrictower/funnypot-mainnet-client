@@ -17,10 +17,20 @@ final class FakeTransport implements Transport
     public $calls = array();
     /** @var array default response when the script queue is empty */
     private $default;
+    /** @var callable|null invoked on each get/post (e.g. to advance a clock for budget tests) */
+    private $onCall;
 
     public function __construct()
     {
         $this->default = array('status' => 0, 'body' => '', 'headers' => array());
+    }
+
+    /** Register a side effect to run on every get/post (used to advance a clock in drain-budget tests). */
+    public function setOnCall($cb)
+    {
+        $this->onCall = $cb;
+
+        return $this;
     }
 
     /**
@@ -69,6 +79,9 @@ final class FakeTransport implements Transport
     private function record($method, $url, array $headers, $body)
     {
         $this->calls[] = array('method' => $method, 'url' => $url, 'headers' => $headers, 'body' => $body);
+        if ($this->onCall !== null) {
+            call_user_func($this->onCall, $method, $url, $headers, $body);
+        }
         if (!empty($this->scripted)) {
             return array_shift($this->scripted);
         }
