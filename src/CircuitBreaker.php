@@ -131,12 +131,15 @@ final class CircuitBreaker
         try {
             $now = $this->now();
             $cap = $now + $this->quotaParkCapSecs;
-            $candidate = $now + $this->cooldownSecs; // floor when no usable header
+            $candidate = 0;
             if ($retryAfter !== null && (int) $retryAfter > 0) {
                 $candidate = max($candidate, $now + (int) $retryAfter);
             }
             if ($rateLimitReset !== null && (int) $rateLimitReset > $now) {
                 $candidate = max($candidate, (int) $rateLimitReset);
+            }
+            if ($candidate <= $now) {
+                $candidate = $now + $this->cooldownSecs; // no usable header -> default park
             }
             $capped = min($candidate, $cap);
             $duration = max(1, $capped - $now);
