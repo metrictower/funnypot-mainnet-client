@@ -59,4 +59,10 @@ final class ArrayCache implements Cache
     {
         return (int) call_user_func($this->clock);
     }
+
+    /** @return string[] the currently stored keys (observability / tests). */
+    public function keys()
+    {
+        return array_keys($this->store);
+    }
 }
