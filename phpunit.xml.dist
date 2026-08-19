@@ -11,6 +11,12 @@
             <directory>tests</directory>
         </testsuite>
     </testsuites>
+    <groups>
+        <!-- The opt-in live integration test never runs in a normal offline suite. -->
+        <exclude>
+            <group>live</group>
+        </exclude>
+    </groups>
     <coverage>
         <include>
             <directory suffix=".php">src</directory>

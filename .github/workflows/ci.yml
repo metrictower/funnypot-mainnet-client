@@ -1,0 +1,42 @@
+name: CI
+
+# The reporter no longer lives in funnypot-core, so piece C's 7.3 matrix does not cover this package —
+# it carries its own lane. The 7.3 job is authoritative for 7.3-syntax conformance (the dev host is 8.x,
+# so a local `php -l` is blind to 7.4+ constructs).
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: [ '7.3', '8.4' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          # pdo_sqlite + curl make the conditional SQLite/transport tests RUN (not skip); sodium mirrors
+          # the rest of the program's container.
+          extensions: pdo_sqlite, curl, sodium, ctype, json, filter
+          coverage: none
+
+      - name: Lint (fast fail on 7.4+ constructs)
+        run: find src tests -name '*.php' -print0 | xargs -0 -n1 -P4 php -l >/dev/null
+
+      - name: Validate composer.json
+        run: composer validate --no-check-publish
+
+      - name: Install (zero hard runtime deps; dev-only phpunit)
+        run: composer install --no-interaction --prefer-dist
+
+      - name: PHPUnit (offline — no network)
+        run: php vendor/bin/phpunit
