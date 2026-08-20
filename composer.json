@@ -1,5 +1,5 @@
 {
-    "name": "metrictower/mainnet-client",
+    "name": "metrictower/funnypot-mainnet-client",
     "description": "Client library for the funnypot-mainnet IP-reputation service (report + check).",
     "type": "library",
     "license": "proprietary",
