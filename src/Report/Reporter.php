@@ -52,7 +52,7 @@ final class Reporter
      * @param CircuitBreaker|null $breaker    shares the decision-N mnc:breaker marker (N6)
      * @param callable|null       $clock      callable():int epoch; defaults to time()
      */
-    public function __construct(ReportQueue $queue, Transport $transport, string $baseUrl, string $apiKey, array $selfIps = array(), $dailyCap = 1000, $dedupHours = 24, CircuitBreaker $breaker = null, $clock = null)
+    public function __construct(ReportQueue $queue, Transport $transport, string $baseUrl, string $apiKey, array $selfIps = array(), $dailyCap = 1000, $dedupHours = 24, ?CircuitBreaker $breaker = null, $clock = null)
     {
         $this->queue = $queue;
         $this->transport = $transport;

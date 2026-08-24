@@ -48,7 +48,7 @@ final class ClientCheckTest extends TestCase
         ), $over));
     }
 
-    private function client(Config $config = null, $jitter = null)
+    private function client(?Config $config = null, $jitter = null)
     {
         if ($config === null) {
             $config = $this->config();

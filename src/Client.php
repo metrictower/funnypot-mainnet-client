@@ -49,7 +49,7 @@ final class Client
      * @param callable|null       $clock      callable():int epoch; defaults to time()
      * @param callable|null       $jitter     callable(int):int TTL jitter; defaults to +/-10-20%
      */
-    public function __construct(Config $config, Transport $transport = null, Cache $cache = null, Reporter $reporter = null, CircuitBreaker $breaker = null, $clock = null, $jitter = null)
+    public function __construct(Config $config, ?Transport $transport = null, ?Cache $cache = null, ?Reporter $reporter = null, ?CircuitBreaker $breaker = null, $clock = null, $jitter = null)
     {
         $this->config = $config;
         $this->cache = $cache !== null ? $cache : new NullCache();

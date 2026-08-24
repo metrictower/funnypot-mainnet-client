@@ -58,8 +58,19 @@ final class StreamTransport implements Transport
             return true;
         });
         $resp = file_get_contents($url, false, $ctx);
-        if (isset($http_response_header) && is_array($http_response_header)) {
-            $rawHeaders = $http_response_header;
+        // The magic $http_response_header local is deprecated as of 8.5 (its mere textual mention
+        // is a compile-time deprecation). Use the 8.5 replacement where present, else read the
+        // magic local indirectly via get_defined_vars() so its name never appears in source.
+        if (function_exists('http_get_last_response_headers')) {
+            $lastHeaders = http_get_last_response_headers();
+            if (is_array($lastHeaders)) {
+                $rawHeaders = $lastHeaders;
+            }
+        } else {
+            $defined = get_defined_vars();
+            if (isset($defined['http_response_header']) && is_array($defined['http_response_header'])) {
+                $rawHeaders = $defined['http_response_header'];
+            }
         }
         restore_error_handler();
 

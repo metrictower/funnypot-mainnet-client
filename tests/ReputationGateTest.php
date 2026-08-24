@@ -43,7 +43,7 @@ final class ReputationGateTest extends TestCase
         ), $over));
     }
 
-    private function gate(Config $config = null)
+    private function gate(?Config $config = null)
     {
         if ($config === null) {
             $config = $this->config();

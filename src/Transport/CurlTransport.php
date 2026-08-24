@@ -66,7 +66,11 @@ final class CurlTransport implements Transport
 
         $resp = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
+        // curl_close is a no-op since 8.0 (handles are GC-freed objects) and deprecated as of 8.5;
+        // only call it on 7.x, where it still frees the underlying resource.
+        if (\PHP_VERSION_ID < 80000) {
+            curl_close($ch);
+        }
 
         if ($resp === false || $resp === null) {
             $resp = '';
