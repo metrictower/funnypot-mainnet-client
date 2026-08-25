@@ -116,3 +116,7 @@ if ($decision->isBlock()) {
 only public-routable addresses, dedups per entity, and honours a daily cap. Enqueue is fast and local;
 the actual POSTs happen on a budgeted background drain, so a listener/request path never blocks on the
 network.
+
+The queue is size-capped (default 10000 rows, oldest dropped first) so an undrained queue cannot grow
+without bound — which matters because a scanner sweep is the high-volume case, and nothing drains the
+queue until you arrange it. `new PdoSqliteReportQueue($path, $cap)` to change it.

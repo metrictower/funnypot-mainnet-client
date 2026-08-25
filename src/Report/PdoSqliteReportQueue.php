@@ -12,14 +12,20 @@ use Throwable;
  */
 final class PdoSqliteReportQueue implements ReportQueue
 {
+    /** Matches WpdbReportQueue's default so the two bundled stores behave alike. */
+    const DEFAULT_QUEUE_CAP = 10000;
+
     /** @var PDO|null lazily opened */
     private $db = null;
     /** @var string */
     private $path;
+    /** @var int hard queue size cap; oldest rows dropped first */
+    private $queueCap;
 
-    public function __construct(string $path)
+    public function __construct(string $path, $queueCap = self::DEFAULT_QUEUE_CAP)
     {
         $this->path = $path;
+        $this->queueCap = max(1, (int) $queueCap);
     }
 
     public function push(array $row)
@@ -35,7 +41,33 @@ final class PdoSqliteReportQueue implements ReportQueue
             ':s' => $signals,
         ));
 
+        $this->enforceCap();
+
         return true;
+    }
+
+    /**
+     * Hard queue cap: drop the oldest rows once the queue exceeds it (SF-6).
+     *
+     * The interface has always required this and this store never implemented it, so the queue grew
+     * without bound — worst exactly when it matters, since a scanner sweep is the high-volume case
+     * and an un-drained queue is the default until delivery is wired up.
+     *
+     * SQLite is not built with DELETE ... ORDER BY LIMIT by default, so bound by id via a subselect.
+     */
+    private function enforceCap()
+    {
+        $count = $this->count();
+        if ($count <= $this->queueCap) {
+            return;
+        }
+
+        // LIMIT is inlined, not bound: PDO quotes bound params as strings under emulated prepares,
+        // which SQLite rejects in LIMIT. The value is COUNT(*) arithmetic, so it is always an int.
+        $excess = (int) ($count - $this->queueCap);
+        $this->db()->exec(
+            'DELETE FROM mnc_queue WHERE id IN (SELECT id FROM mnc_queue ORDER BY id ASC LIMIT ' . $excess . ')'
+        );
     }
 
     public function take(int $limit)

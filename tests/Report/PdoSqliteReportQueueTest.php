@@ -85,4 +85,32 @@ final class PdoSqliteReportQueueTest extends TestCase
         $this->assertSame($signals, $rows[0]['signals'], 'the signals JSON blob round-trips');
         $this->assertArrayNotHasKey('signals', $rows[1], 'a row pushed with no signals returns none');
     }
+
+    public function test_push_enforces_the_hard_queue_cap_oldest_first()
+    {
+        $q = new PdoSqliteReportQueue($this->file, 5);
+
+        for ($i = 1; $i <= 8; $i++) {
+            $q->push(array('ip' => '198.51.100.' . $i, 'categories' => '21', 'comment' => 'p' . $i));
+        }
+
+        $this->assertSame(5, $q->count(), 'the cap must hold once exceeded');
+
+        $ips = array_column($q->take(10), 'ip');
+        $this->assertSame(
+            array('198.51.100.4', '198.51.100.5', '198.51.100.6', '198.51.100.7', '198.51.100.8'),
+            $ips,
+            'the three oldest rows must be the ones dropped'
+        );
+    }
+
+    public function test_a_queue_under_the_cap_is_untouched()
+    {
+        $q = new PdoSqliteReportQueue($this->file, 100);
+        for ($i = 1; $i <= 4; $i++) {
+            $q->push(array('ip' => '198.51.100.' . $i, 'categories' => '21', 'comment' => 'p'));
+        }
+        $this->assertSame(4, $q->count());
+    }
+
 }
