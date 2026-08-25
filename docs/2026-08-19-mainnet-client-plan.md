@@ -1,4 +1,4 @@
-# metrictower/mainnet-client · F — implementation plan
+# metrictower/funnypot-mainnet-client · F — implementation plan
 
 **Status:** ready to build · **Date:** 2026-08-19 · **Piece:** F of the funnypot-mainnet program
 **Implements:** [`2026-08-19-mainnet-client-design.md`](./2026-08-19-mainnet-client-design.md) (the design is the source of truth; this plan does not redesign it)
@@ -130,7 +130,7 @@ write — was 30), `quota_park_cap_secs=21600` (6h ceiling on a quota-class park
 ## Phase 0 — Package skeleton + green empty suite
 
 **Change.** Create the package so `phpunit` runs:
-- `composer.json` with the design §2 shape: `name` `metrictower/mainnet-client`, `type` library,
+- `composer.json` with the design §2 shape: `name` `metrictower/funnypot-mainnet-client`, `type` library,
   `require { "php": ">=7.3" }`, `require-dev { "phpunit/phpunit": "^9.5" }`, the three `suggest`s
   (`ext-curl`, `ext-pdo_sqlite`, `psr/simple-cache`), `autoload` PSR-4 `Funnypot\\Mainnet\\ → src/`,
   `autoload-dev` PSR-4 `Funnypot\\Mainnet\\Tests\\ → tests/`.
@@ -740,7 +740,7 @@ skips cleanly offline.
 ## Cross-piece dependencies (coordination)
 
 - **This package is upstream of everything.** Land it (Phases 0–14, tagged) **before** the consumers can
-  pull it. `funnypot-core` (piece C) gains `require metrictower/mainnet-client` and re-exports it; D/E get
+  pull it. `funnypot-core` (piece C) gains `require metrictower/funnypot-mainnet-client` and re-exports it; D/E get
   it transitively; non-honeypot consumers require it directly, without the engine.
 - **Piece B is superseded here.** B's `funnypot-core/src/Report/` tree is **dropped** — its Phases 1–6
   land in this package (Phases 11–12 above) as `Funnypot\Mainnet\*`; B's Phase 8 app wiring retargets the

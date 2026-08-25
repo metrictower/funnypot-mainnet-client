@@ -1,4 +1,4 @@
-# metrictower/mainnet-client · F (mainnet client library) — design spec
+# metrictower/funnypot-mainnet-client · F (mainnet client library) — design spec
 
 **Status:** draft for review · **Date:** 2026-08-19 · **Piece:** F of the funnypot-mainnet program
 **Canonical:** [`funnypot-mainnet/docs/2026-08-19-program-decisions.md`](../../funnypot-mainnet/docs/2026-08-19-program-decisions.md) §F (wins over this spec on any conflict)
@@ -11,7 +11,7 @@
 
 ## 1. What this is + why standalone
 
-`metrictower/mainnet-client` is the **client library** for the funnypot-mainnet reputation service
+`metrictower/funnypot-mainnet-client` is the **client library** for the funnypot-mainnet reputation service
 (A1). It is the one place any consumer — the honeypot, the WordPress/Laravel extensions, or a future
 non-honeypot tool — talks to `{MAINNET_BASE_URL}/v1/*`. It carries two capabilities:
 
@@ -36,7 +36,7 @@ The check capability has consumers that must **not** drag in the honeypot engine
 
 ```
                          ┌──────────────────────────────┐
-                         │ metrictower/mainnet-client    │   PHP >= 7.3, framework-free
+                         │ metrictower/funnypot-mainnet-client    │   PHP >= 7.3, framework-free
                          │  Client(check+report)         │   curl/streams transport
                          │  ReputationGate / Reporter    │   PSR-16 cache seam (injected)
                          └───────────────┬───────────────┘
@@ -111,7 +111,7 @@ mainnet-client/
 
 ```json
 {
-  "name": "metrictower/mainnet-client",
+  "name": "metrictower/funnypot-mainnet-client",
   "description": "Client library for the funnypot-mainnet IP-reputation service (report + check).",
   "type": "library",
   "license": "proprietary",
@@ -1041,7 +1041,7 @@ Pure PHPUnit, host-run, **no network** — inject a `FakeTransport` and an `Arra
   transport folds into this package's `Transport` (its POST is `Transport::post`). The in-core
   `src/Report/` tree is **dropped**; B's phases that built it retarget this package + the core/app
   wiring. Report body/shape/`sensor_id`/dedup/cap are carried over verbatim.
-- **C (funnypot-core → 7.3):** core gains a `require` on `metrictower/mainnet-client` and re-exports
+- **C (funnypot-core → 7.3):** core gains a `require` on `metrictower/funnypot-mainnet-client` and re-exports
   it. **`src/Report/` is removed from C's conversion scope** — it never lands in core now — so C's 7.3
   matrix no longer needs the reporter row; **this package runs its own 7.3 lane** (§6). C still needs
   `pdo_sqlite`+`curl`+`sodium` in its container for the rest of its suite; the reporter's conditional
