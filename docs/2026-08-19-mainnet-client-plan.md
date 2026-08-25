@@ -4,7 +4,7 @@
 **Implements:** [`2026-08-19-mainnet-client-design.md`](./2026-08-19-mainnet-client-design.md) (the design is the source of truth; this plan does not redesign it)
 **Canonical (wins over both):** [`funnypot-mainnet/docs/2026-08-19-program-decisions.md`](../../funnypot-mainnet/docs/2026-08-19-program-decisions.md) §F
 **Reporter origin (relocated here):** [`funnypot-core/docs/2026-08-19-mainnet-reporting-plan.md`](../../funnypot-core/docs/2026-08-19-mainnet-reporting-plan.md) (piece B — its Phases 1–6 tests port over verbatim under the new namespace)
-**Breaker pattern:** [`funnypot/src/App/Llm/CircuitBreaker.php`](../../funnypot/src/App/Llm/CircuitBreaker.php) (behavior mirrored; rewritten 7.3-clean, cache-backed)
+**Breaker pattern:** [`funnypot-app/src/App/Llm/CircuitBreaker.php`](../../funnypot-app/src/App/Llm/CircuitBreaker.php) (behavior mirrored; rewritten 7.3-clean, cache-backed)
 
 A builder should be able to execute this top to bottom without re-reading the design. Each phase is
 TDD: the test is written and shown to fail first, then the code makes it pass, then the **whole suite**

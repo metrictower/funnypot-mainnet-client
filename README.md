@@ -1,7 +1,7 @@
 # funnypot-mainnet-client
 
 > **Not sure you're in the right place?**
-> - Want a ready-to-run **honeypot box** to deploy → [funnypot](https://github.com/metrictower/funnypot)
+> - Want a ready-to-run **honeypot box** to deploy → [funnypot-app](https://github.com/metrictower/funnypot-app)
 > - Protecting a **Laravel** app → [funnypot-laravel](https://github.com/metrictower/funnypot-laravel)
 > - Protecting a **WordPress** site → [funnypot-wordpress](https://github.com/metrictower/funnypot-wordpress)
 > - Embedding the deception/detection **engine** in your own PHP / PSR-15 app → [funnypot-core](https://github.com/metrictower/funnypot-core)
