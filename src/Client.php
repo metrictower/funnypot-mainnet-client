@@ -185,6 +185,35 @@ final class Client
         return $reporter->enqueue($ip, $comment, $categories, $signals);
     }
 
+    /**
+     * Deliver queued reports. THIS IS THE OTHER HALF OF report() — without it nothing is ever sent.
+     *
+     * report() only enqueues, so a consumer that never drains has a queue that grows and delivers
+     * nothing, silently. Run this out of band (cron, scheduler tick, worker) and NEVER on the
+     * request path: it opens sockets. The drain is wall-clock budgeted and breaker-aware, so a
+     * mainnet outage costs one tick, not a pile-up.
+     *
+     * @param int $limit max rows to attempt this tick
+     * @return array {sent:int, failed:int, pending:int}
+     */
+    public function drain($limit = 200)
+    {
+        $reporter = $this->reporter();
+        if ($reporter === null) {
+            return array('sent' => 0, 'failed' => 0, 'pending' => 0, 'reason' => 'no reporter');
+        }
+
+        return $reporter->drain($limit);
+    }
+
+    /** Rows currently queued for delivery. 0 when reporting is not configured. */
+    public function queuedReports()
+    {
+        $reporter = $this->reporter();
+
+        return $reporter === null ? 0 : (int) $reporter->queueCount();
+    }
+
     // --- internals -------------------------------------------------------------------------------
 
     private function handleResponse(array $res, $ip, $maxAge, $sensitivity)

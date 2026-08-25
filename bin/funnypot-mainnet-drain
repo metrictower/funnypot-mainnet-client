@@ -1,0 +1,100 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Deliver queued abuse reports to funnypot mainnet.
+ *
+ * report() only ENQUEUES — this is what actually sends. Without it running, a configured install
+ * queues reports forever and delivers none of them, with no error. Run it out of band; never on a
+ * request path.
+ *
+ * Config comes from the environment so a cron line needs no PHP:
+ *
+ *   MAINNET_BASE_URL   required, scheme + host only (https://mainnet.example)
+ *   MAINNET_KEY        required, the sensor key
+ *   MAINNET_DB         required, path to the SQLite report queue
+ *   MAINNET_SELF_IPS   optional, comma-separated addresses that must never be reported
+ *   MAINNET_DAILY_CAP  optional, default 1000
+ *
+ * Example crontab entry (every 5 minutes):
+ *
+ *   *\/5 * * * * MAINNET_BASE_URL=https://mainnet.example MAINNET_KEY=... \
+ *     MAINNET_DB=/var/lib/funnypot/intel.sqlite \
+ *     /path/to/vendor/bin/funnypot-mainnet-drain >> /var/log/funnypot-drain.log 2>&1
+ *
+ * Exit 0 on a completed tick (including "nothing to send"), 1 on a configuration error.
+ */
+
+declare(strict_types=1);
+
+foreach ([__DIR__ . '/../../../autoload.php', __DIR__ . '/../vendor/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+if (!class_exists(\Funnypot\Mainnet\Client::class)) {
+    fwrite(STDERR, "funnypot-mainnet-drain: could not locate the Composer autoloader.\n");
+    exit(1);
+}
+
+$limit = 200;
+foreach (array_slice($argv, 1) as $arg) {
+    if (preg_match('/^--limit=(\d+)$/', $arg, $m)) {
+        $limit = (int) $m[1];
+    } elseif ($arg === '--help' || $arg === '-h') {
+        fwrite(STDOUT, "usage: funnypot-mainnet-drain [--limit=N]\n");
+        exit(0);
+    } else {
+        fwrite(STDERR, "funnypot-mainnet-drain: unknown argument '{$arg}'\n");
+        exit(1);
+    }
+}
+
+$env = static function (string $name, string $default = ''): string {
+    $v = getenv($name);
+
+    return $v === false ? $default : (string) $v;
+};
+
+$baseUrl = $env('MAINNET_BASE_URL');
+$key = $env('MAINNET_KEY');
+$db = $env('MAINNET_DB');
+
+$missing = [];
+foreach (['MAINNET_BASE_URL' => $baseUrl, 'MAINNET_KEY' => $key, 'MAINNET_DB' => $db] as $name => $value) {
+    if ($value === '') {
+        $missing[] = $name;
+    }
+}
+if ($missing !== []) {
+    fwrite(STDERR, 'funnypot-mainnet-drain: missing required env: ' . implode(', ', $missing) . "\n");
+    exit(1);
+}
+if (!extension_loaded('pdo_sqlite')) {
+    fwrite(STDERR, "funnypot-mainnet-drain: ext-pdo_sqlite is required for the bundled queue.\n");
+    exit(1);
+}
+
+$selfIps = array_values(array_filter(array_map('trim', explode(',', $env('MAINNET_SELF_IPS')))));
+
+$config = \Funnypot\Mainnet\Config::fromArray([
+    'base_url' => $baseUrl,
+    'key' => $key,
+    'intel_db_path' => $db,
+    'self_ips' => $selfIps,
+    'daily_cap' => (int) $env('MAINNET_DAILY_CAP', '1000'),
+]);
+
+$result = (new \Funnypot\Mainnet\Client($config))->drain($limit);
+
+printf(
+    "sent=%d failed=%d pending=%d%s\n",
+    $result['sent'] ?? 0,
+    $result['failed'] ?? 0,
+    $result['pending'] ?? 0,
+    isset($result['reason']) ? ' reason=' . $result['reason'] : ''
+);
+
+exit(0);

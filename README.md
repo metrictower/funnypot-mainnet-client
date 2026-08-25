@@ -60,7 +60,9 @@ $client = new Client($config, null, $cache);  // inject a Cache to enable cached
 |---|---|---|---|
 | `check($ip, $opts)` | out-of-band | opens a socket | Never throws. Run from a warmer/cron, **never** on the request path. Consults the circuit breaker; caches the result. |
 | `cachedVerdict($ip, $opts)` | request path | none | Reads the verdict cache, then the bulk local mirror; `null` on a miss. No socket, no breaker. |
-| `report($ip, $comment, $categories, $signals)` | enqueue | queued | Guards + dedups, then queues an abuse report a background drain POSTs. Returns `['queued'=>bool, 'reason'=>string]`. |
+| `report($ip, $comment, $categories, $signals)` | enqueue | none | Guards + dedups, then **queues** an abuse report. Returns `['queued'=>bool, 'reason'=>string]`. |
+| `drain($limit)` | out-of-band | opens sockets | **The other half of `report()`.** Delivers queued rows. Budgeted and breaker-aware. Returns `['sent'=>int,'failed'=>int,'pending'=>int]`. |
+| `queuedReports()` | anywhere | none | Rows waiting for delivery. |
 
 The `check()` / `cachedVerdict()` split is the load-bearing seam: the request path only ever reads
 already-resolved verdicts, so it never waits on the network.
@@ -119,5 +121,30 @@ the actual POSTs happen on a budgeted background drain, so a listener/request pa
 network.
 
 The queue is size-capped (default 10000 rows, oldest dropped first) so an undrained queue cannot grow
-without bound — which matters because a scanner sweep is the high-volume case, and nothing drains the
-queue until you arrange it. `new PdoSqliteReportQueue($path, $cap)` to change it.
+without bound — which matters because a scanner sweep is the high-volume case.
+`new PdoSqliteReportQueue($path, $cap)` to change it.
+
+### You must arrange delivery
+
+**`report()` never sends. `drain()` sends.** If nothing calls `drain()`, a fully configured install
+queues reports forever and delivers none of them, with no error — so wire this up as part of
+installing, not later.
+
+There is no genuinely async HTTP in stock PHP without an event loop (fibers are cooperative
+coroutines with no I/O of their own; the fire-and-forget socket tricks either fail under TLS or still
+block), which is why delivery is a queue plus an out-of-band drain rather than a background send.
+The queue is also where the dedup, daily cap and breaker feedback live — a fire-and-forget POST reads
+no response, so it could not maintain any of them.
+
+The package ships a CLI so a cron line needs no PHP:
+
+```bash
+*/5 * * * * MAINNET_BASE_URL=https://mainnet.example MAINNET_KEY=... \
+  MAINNET_DB=/var/lib/funnypot/intel.sqlite \
+  /path/to/vendor/bin/funnypot-mainnet-drain >> /var/log/funnypot-drain.log 2>&1
+```
+
+Optional: `MAINNET_SELF_IPS` (comma-separated), `MAINNET_DAILY_CAP`, `--limit=N`.
+
+If your app already has a job queue, call `$client->drain()` from a scheduled job instead — that is
+what funnypot-laravel does. **Never call it on a request path**: it opens sockets.

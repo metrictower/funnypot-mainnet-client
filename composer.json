@@ -26,5 +26,8 @@
     },
     "config": {
         "sort-packages": true
-    }
+    },
+    "bin": [
+        "bin/funnypot-mainnet-drain"
+    ]
 }

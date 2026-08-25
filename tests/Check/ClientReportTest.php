@@ -82,4 +82,36 @@ final class ClientReportTest extends TestCase
         $rows = $this->queue->rows();
         $this->assertArrayNotHasKey('signals', $rows[count($rows) - 1]);
     }
+
+    public function test_drain_delivers_what_report_queued()
+    {
+        $client = $this->client();
+        $client->report('198.51.100.9', 'brute force', '18,22');
+        $this->assertSame(1, $client->queuedReports(), 'report() only enqueues');
+        $this->assertSame(0, $this->transport->callCount(), 'enqueue must not touch the network');
+
+        $this->transport->setDefault(200, '{"data":{"ok":true}}');
+        $res = $client->drain(10);
+
+        $this->assertSame(1, $res['sent']);
+        $this->assertSame(0, $res['failed']);
+        $this->assertSame(0, $client->queuedReports(), 'a delivered row leaves the queue');
+        $this->assertSame(1, $this->transport->callCount());
+    }
+
+    public function test_drain_is_inert_when_no_reporter_can_be_built()
+    {
+        // No injected reporter and no intel_db_path: the lazy facade build cannot produce one.
+        // This is the silent-nothing case a consumer hits by configuring only a key.
+        $config = Config::fromArray(array(
+            'base_url' => 'https://mainnet.example',
+            'key' => 'report-key',
+        ));
+        $res = (new Client($config, $this->transport))->drain();
+
+        $this->assertSame(0, $res['sent']);
+        $this->assertSame('no reporter', $res['reason']);
+        $this->assertSame(0, $this->transport->callCount());
+    }
+
 }
