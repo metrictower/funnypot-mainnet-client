@@ -61,13 +61,12 @@ final class ReporterTest extends TestCase
 
     // --- enqueue guard ladder (B-verbatim) --------------------------------------------------------
 
-    public function test_inert_without_self_ips()
+    public function test_enqueues_successfully_without_self_ips()
     {
         $r = $this->reporter(self::KEY, array());
         $res = $r->enqueue('198.51.100.9', 'hi');
-        $this->assertFalse($res['queued']);
-        $this->assertSame('self ips not configured', $res['reason']);
-        $this->assertSame(0, $this->queue->count());
+        $this->assertTrue($res['queued']);
+        $this->assertSame(1, $this->queue->count());
     }
 
     public function test_no_key()

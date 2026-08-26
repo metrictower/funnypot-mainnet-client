@@ -35,7 +35,7 @@ final class Config
     private $breakerCooldownSecs;
     /** @var int ceiling for a quota-class park in secs */
     private $quotaParkCapSecs;
-    /** @var array FUNNYPOT_SELF_IPS; report inert when empty */
+    /** @var array optional self-IP override list (addresses that must never be reported) */
     private $selfIps;
     /** @var int report daily cap */
     private $dailyCap;

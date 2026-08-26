@@ -84,8 +84,8 @@ final class Reporter
     }
 
     /**
-     * Queue a report if it passes the guards (fast, local). Guard ladder + reason strings are B-verbatim:
-     * no api key -> self ips not configured -> self -> not a public ip -> deduped -> daily cap -> queued.
+     * Queue a report if it passes the guards (fast, local):
+     * no api key -> self (when self_ips configured) -> not a public ip -> deduped -> daily cap -> queued.
      *
      * @param string $ip
      * @param string $comment
@@ -97,9 +97,6 @@ final class Reporter
     {
         if ($this->apiKey === '') {
             return $this->skip('no api key');
-        }
-        if ($this->selfIps === array()) {
-            return $this->skip('self ips not configured'); // fail safe
         }
         if (in_array($ip, $this->selfIps, true)) {
             return $this->skip('self');                     // the invariant
