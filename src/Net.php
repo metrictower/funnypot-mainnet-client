@@ -84,6 +84,12 @@ final class Net
     /** Public, routable IP only (the reporter's public-IP guard). */
     public static function isPublic(string $ip)
     {
-        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+            return false;
+        }
+
+        // filter_var's flags miss carrier-grade NAT (RFC6598, 100.64.0.0/10) — internal space that is
+        // not routable on the public internet, so a report against it is junk.
+        return self::containment('100.64.0.0/10', $ip) < 0;
     }
 }
