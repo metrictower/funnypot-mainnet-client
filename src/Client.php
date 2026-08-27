@@ -214,6 +214,15 @@ final class Client
         return $reporter === null ? 0 : (int) $reporter->queueCount();
     }
 
+    /**
+     * The shared circuit breaker, so a host running delivery on its own path (e.g. funnypot-laravel's
+     * queued job) records outages on the SAME marker the check path reads (design §4.4 N3).
+     */
+    public function breaker(): CircuitBreaker
+    {
+        return $this->breaker;
+    }
+
     // --- internals -------------------------------------------------------------------------------
 
     private function handleResponse(array $res, $ip, $maxAge, $sensitivity)

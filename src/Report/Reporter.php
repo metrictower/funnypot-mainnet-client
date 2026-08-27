@@ -40,6 +40,8 @@ final class Reporter
     private $breaker;
     /** @var callable():int */
     private $clock;
+    /** @var ReportSender */
+    private $sender;
 
     /**
      * @param ReportQueue         $queue
@@ -63,6 +65,9 @@ final class Reporter
         $this->dedupHours = (int) $dedupHours;
         $this->breaker = $breaker;
         $this->clock = $clock !== null ? $clock : 'time';
+        // drain() delegates the per-row POST + wire classification to the sender so the same handling is
+        // reused by hosts with their own delivery queue (FP-0060). Same transport/breaker/clock instances.
+        $this->sender = new ReportSender($transport, $baseUrl, $apiKey, $breaker, $this->clock);
     }
 
     /** AbuseIPDB-style category ids appropriate to a protocol honeypot hit (moved verbatim from B). */
@@ -151,7 +156,6 @@ final class Reporter
             return array('sent' => 0, 'failed' => 0, 'pending' => $this->safeCount());
         }
 
-        $endpoint = rtrim($this->baseUrl, '/') . '/v1/report';
         $sensorId = $this->queue->sensorId();
         $start = $this->now();
         $sent = 0;
@@ -175,43 +179,27 @@ final class Reporter
                 continue;
             }
 
-            $status = 0;
-            $body = '';
-            try {
-                $res = $this->transport->post($endpoint, array('Key: ' . $this->apiKey, 'Accept: application/json'), $this->postBody($row, $sensorId));
-                $status = isset($res['status']) ? (int) $res['status'] : 0;
-                $body = isset($res['body']) ? (string) $res['body'] : '';
-                $headers = isset($res['headers']) && is_array($res['headers']) ? $res['headers'] : array();
-            } catch (Throwable $e) {
-                $status = 0;
-                $headers = array();
-            }
+            $outcome = $this->sender->send($row, $sensorId);
 
-            if ($status >= 200 && $status < 300) {
+            if ($outcome['delivered']) {
                 $this->queue->delete($id);
                 $this->queue->bumpDaily();
                 $sent++;
                 $consecutiveTransportFails = 0;
                 continue;
             }
-
-            if ($status === 429) {
-                $code = $this->errorCode($body);
-                if ($code === 'duplicate_report') {
-                    // Not a fault: drop, never loop, breaker untouched (SF-7).
-                    $this->queue->delete($id);
-                    $failed++;
-                    $consecutiveTransportFails = 0;
-                    continue;
-                }
-                // quota_exhausted (or an unlabelled 429): park + stop the tick (SF-7/N2). Row stays queued.
-                if ($this->breaker !== null) {
-                    $this->breaker->recordQuota($this->retryAfter($headers), $this->rateLimitReset($headers));
-                }
+            if ($outcome['status'] === 'duplicate') {
+                // Not a fault: drop, never loop, breaker untouched (SF-7).
+                $this->queue->delete($id);
+                $failed++;
+                $consecutiveTransportFails = 0;
+                continue;
+            }
+            if ($outcome['status'] === 'quota') {
+                // send() already recorded quota on the breaker; park + stop the tick (SF-7/N2). Row stays queued.
                 break;
             }
-
-            if ($status >= 400 && $status < 500) {
+            if ($outcome['status'] === 'client_error') {
                 // Permanent client error (no_report_rights, 422, ...) -> drop.
                 $this->queue->delete($id);
                 $failed++;
@@ -245,22 +233,6 @@ final class Reporter
 
     // --- internals -------------------------------------------------------------------------------
 
-    private function postBody(array $row, $sensorId)
-    {
-        $fields = array(
-            'ip' => isset($row['ip']) ? $row['ip'] : '',
-            'categories' => isset($row['categories']) ? $row['categories'] : '',
-            'comment' => isset($row['comment']) ? $row['comment'] : '',
-            'timestamp' => gmdate('c', $this->now()),
-            'sensor_id' => $sensorId,
-        );
-        if (isset($row['signals']) && $row['signals'] !== '' && $row['signals'] !== null) {
-            $fields['signals'] = $row['signals']; // the JSON string, forwarded verbatim (T5)
-        }
-
-        return http_build_query($fields);
-    }
-
     private function tooOld(array $row)
     {
         if (!isset($row['created_at']) || $row['created_at'] === '') {
@@ -272,49 +244,6 @@ final class Reporter
         }
 
         return ($this->now() - $ts) > self::MAX_AGE_SECS;
-    }
-
-    private function errorCode($body)
-    {
-        $json = json_decode((string) $body, true);
-        if (!is_array($json)) {
-            return '';
-        }
-        if (isset($json['error']) && is_array($json['error']) && isset($json['error']['code'])) {
-            return (string) $json['error']['code'];
-        }
-        if (isset($json['code'])) {
-            return (string) $json['code'];
-        }
-
-        return '';
-    }
-
-    private function retryAfter(array $headers)
-    {
-        if (!isset($headers['retry-after'])) {
-            return null;
-        }
-        $h = trim((string) $headers['retry-after']);
-        if ($h === '') {
-            return null;
-        }
-        if (ctype_digit($h)) {
-            return (int) $h;
-        }
-        $ts = strtotime($h);
-
-        return $ts === false ? null : max(0, $ts - $this->now());
-    }
-
-    private function rateLimitReset(array $headers)
-    {
-        if (!isset($headers['x-ratelimit-reset'])) {
-            return null;
-        }
-        $h = trim((string) $headers['x-ratelimit-reset']);
-
-        return ctype_digit($h) ? (int) $h : null;
     }
 
     private function safeCount()
