@@ -18,7 +18,7 @@ reputation and report abuse over the mainnet `/v1/*` API, with **no runtime depe
 composer require metrictower/funnypot-mainnet-client
 ```
 
-Runs on **PHP 7.3 – 8.4** with no runtime Composer dependencies. `ext-curl` is used when present (a
+Runs on **PHP 7.3 – 8.5** with no runtime Composer dependencies. `ext-curl` is used when present (a
 stream-context transport is the fallback); `ext-pdo_sqlite` is needed only for the bundled report
 queue, and any PSR-16 cache can back the verdict store via `Psr16Cache`.
 
@@ -63,6 +63,7 @@ $client = new Client($config, null, $cache);  // inject a Cache to enable cached
 | `report($ip, $comment, $categories, $signals)` | enqueue | none | Guards + dedups, then **queues** an abuse report. Returns `['queued'=>bool, 'reason'=>string]`. |
 | `drain($limit)` | out-of-band | opens sockets | **The other half of `report()`.** Delivers queued rows. Budgeted and breaker-aware. Returns `['sent'=>int,'failed'=>int,'pending'=>int]`. |
 | `queuedReports()` | anywhere | none | Rows waiting for delivery. |
+| `breaker()` | anywhere | none | The shared `CircuitBreaker`. For a host that delivers reports on its own path (not via `drain()`) so its outages land on the same marker `check()` reads. |
 
 The `check()` / `cachedVerdict()` split is the load-bearing seam: the request path only ever reads
 already-resolved verdicts, so it never waits on the network.
