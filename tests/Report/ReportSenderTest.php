@@ -110,6 +110,24 @@ final class ReportSenderTest extends TestCase
         $this->assertSame('quota', $breaker->reason());
     }
 
+    public function test_a_delivery_closes_the_breaker_and_resets_its_backoff()
+    {
+        $breaker = $this->breaker();
+        $breaker->tripTransport();
+        $breaker->tripTransport(); // two consecutive opens (60s, 120s): the next would be 240s
+        $this->clock->advance(121);
+        $this->assertTrue($breaker->allow(), 'the half-open probe lease');
+        $this->transport->setDefault(200, '');
+
+        $out = $this->sender($breaker)->send($this->row(), 'sensor-1');
+
+        $this->assertTrue($out['delivered']);
+        $this->assertSame(0, $breaker->tripCount());
+        $this->assertTrue($breaker->allow(), 'closed at once, not parked on the probe lease');
+        $breaker->tripTransport();
+        $this->assertSame($this->clock->now() + 60, $breaker->openUntil(), 'the curve restarts at one cooldown');
+    }
+
     public function test_a_4xx_client_error_drops()
     {
         $this->transport->setDefault(422, '');

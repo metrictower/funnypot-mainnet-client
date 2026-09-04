@@ -22,7 +22,8 @@ composer require metrictower/funnypot-mainnet-client
 
 Runs on **PHP 7.3 – 8.5** with no runtime Composer dependencies. `ext-curl` is used when present (a
 stream-context transport is the fallback); `ext-pdo_sqlite` is needed only for the bundled report
-queue, and any PSR-16 cache can back the verdict store via `Psr16Cache`.
+queue, and any PSR-16 cache can back the verdict/breaker store via `Psr16Cache` (or APCu via
+`ApcuCache` on a bare-PHP host).
 
 ## The two design rules
 
@@ -43,7 +44,8 @@ $config = Config::fromArray([
     'key'           => getenv('MAINNET_KEY'),      // the sole credential
     'check_enabled' => true,                       // opt in to reputation checks (default: off)
     // defaults: block_verdicts=['malicious','critical'], fail_mode='open',
-    //           sensitivity='balanced', cache_ttl_hours=12, timeout_ms=1500
+    //           sensitivity='balanced', cache_ttl_hours=12, timeout_ms=1500,
+    //           breaker_threshold=5, breaker_cooldown_secs=60, breaker_max_backoff_secs=1800
 ]);
 ```
 
@@ -65,7 +67,7 @@ $client = new Client($config, null, $cache);  // inject a Cache to enable cached
 | `report($ip, $comment, $categories, $signals)` | enqueue | none | Guards + dedups, then **queues** an abuse report. Returns `['queued'=>bool, 'reason'=>string]`. |
 | `drain($limit)` | out-of-band | opens sockets | **The other half of `report()`.** Delivers queued rows. Budgeted and breaker-aware. Returns `['sent'=>int,'failed'=>int,'pending'=>int]`. |
 | `queuedReports()` | anywhere | none | Rows waiting for delivery. |
-| `breaker()` | anywhere | none | The shared `CircuitBreaker`. For a host that delivers reports on its own path (not via `drain()`) so its outages land on the same marker `check()` reads. |
+| `breaker($channel)` | anywhere | none | The per-channel `CircuitBreaker` (`Client::CHANNEL_CHECK`, `Client::CHANNEL_REPORT`). A host that delivers reports on its own path (not via `drain()`) records on `breaker(Client::CHANNEL_REPORT)` so its outages land where `drain()` looks. |
 
 The `check()` / `cachedVerdict()` split is the load-bearing seam: the request path only ever reads
 already-resolved verdicts, so it never waits on the network.
@@ -115,6 +117,31 @@ if ($decision->isBlock()) {
   (default 5) and short-circuits to fail-open for a cooldown (default 60s); a `429` parks against
   `Retry-After` / `X-RateLimit-Reset`. `cachedVerdict()` never touches the breaker, so the request
   path is never affected by service trouble.
+- **Exponential backoff on a sustained outage.** Each consecutive open — a failed half-open probe, or
+  a drain tick hitting its abort budget again — doubles the window: 60s → 120s → 240s → … up to
+  `breaker_max_backoff_secs` (default 1800), always ±20% jittered so a fleet never re-probes in
+  lockstep. The first open is exactly one cooldown, so a single blip behaves as it always did, and any
+  success resets the curve. Set `breaker_max_backoff_secs` equal to `breaker_cooldown_secs` for the
+  old flat cooldown.
+- **One breaker per channel.** `check()` and report delivery keep separate records
+  (`Client::CHANNEL_CHECK` / `Client::CHANNEL_REPORT`), so a struggling report ingest never blinds
+  reputation checks, and vice versa. `$client->breaker($channel)` returns them; a `CircuitBreaker`
+  injected into the `Client` constructor serves every channel instead (one shared record).
+
+### Breaker state across processes
+
+PHP is shared-nothing, so the outage record has to live somewhere every worker can see:
+
+| Store | When | How |
+|---|---|---|
+| Framework cache (Redis, Memcached, DB) | Laravel / WordPress hosts | Inject it via `Psr16Cache` — funnypot-laravel and funnypot-wordpress already do. Every worker and queue process shares the record instantly. |
+| APCu | Bare-PHP hosts behind php-fpm | `ApcuCache::isUsable() ? new ApcuCache() : null` as the `Client`'s cache. Shared across the fpm pool; opt-in, never auto-selected. |
+| Temp-dir marker | Everything else, and any CLI with APCu off | Automatic: with no `Persistent` cache the breaker writes `mnc_breaker_<channel>.json` under `sys_get_temp_dir()`. |
+
+Guard APCu with `isUsable()` rather than constructing it unconditionally: `apcu.enable_cli=0` is the
+packaged default, so a cron drain would otherwise hold an inert cache while php-fpm holds a live one,
+and the two would stop coordinating. With the guard the CLI side falls through to the marker file. Every
+store fault inside the breaker fails open — a broken cache can never block a request.
 
 ## Reporting
 

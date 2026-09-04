@@ -282,6 +282,33 @@ final class ClientCheckTest extends TestCase
         $this->assertSame(0, $this->transport->callCount(), 'breaker-open skips the socket');
     }
 
+    public function test_check_and_report_use_separate_breaker_channels()
+    {
+        // No injected breaker: the Client builds one per channel over its (Persistent) cache.
+        $store = new Psr16Cache(new ArrayPsr16());
+        $client = new Client($this->config(), $this->transport, $store, null, null, $this->clock->asCallable(), $this->identityJitter());
+        for ($i = 0; $i < 5; $i++) {
+            $this->transport->pushResponse(503, 'down');
+            $client->check('203.0.113.' . ($i + 1));
+        }
+        $check = $client->breaker(Client::CHANNEL_CHECK);
+        $this->assertFalse($check->allow(), 'five transport faults trip the check channel');
+        $this->assertSame(1, $check->tripCount());
+        $this->assertSame($check, $client->breaker(Client::CHANNEL_CHECK), 'one instance per channel');
+        $report = $client->breaker(Client::CHANNEL_REPORT);
+        $this->assertTrue($report->allow(), 'the report channel is untouched by a check outage');
+        $this->assertSame(0, $report->tripCount());
+        $this->assertTrue($client->breaker()->allow(), 'and so is the default channel');
+    }
+
+    public function test_an_injected_breaker_serves_every_channel()
+    {
+        $client = $this->client();
+        $this->assertSame($this->breaker, $client->breaker(Client::CHANNEL_CHECK));
+        $this->assertSame($this->breaker, $client->breaker(Client::CHANNEL_REPORT));
+        $this->assertSame($this->breaker, $client->breaker());
+    }
+
     public function test_check_never_throws_on_garbage_body()
     {
         $this->transport->pushResponse(200, "\x00\x01 not json {");

@@ -51,7 +51,7 @@ final class Reporter
      * @param array               $selfIps
      * @param int                 $dailyCap
      * @param int                 $dedupHours
-     * @param CircuitBreaker|null $breaker    shares the decision-N mnc:breaker marker (N6)
+     * @param CircuitBreaker|null $breaker    the report-channel breaker (N6): consulted before a tick, tripped after the abort budget
      * @param callable|null       $clock      callable():int epoch; defaults to time()
      */
     public function __construct(ReportQueue $queue, Transport $transport, string $baseUrl, string $apiKey, array $selfIps = array(), $dailyCap = 1000, $dedupHours = 24, ?CircuitBreaker $breaker = null, $clock = null)

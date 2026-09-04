@@ -22,6 +22,7 @@ final class ConfigTest extends TestCase
         $this->assertSame(1500, $c->timeoutMs());
         $this->assertSame(5, $c->breakerThreshold());
         $this->assertSame(60, $c->breakerCooldownSecs());
+        $this->assertSame(1800, $c->breakerMaxBackoffSecs());
         $this->assertSame(21600, $c->quotaParkCapSecs());
         $this->assertSame(array(), $c->selfIps());
         $this->assertSame(1000, $c->dailyCap());
@@ -41,6 +42,7 @@ final class ConfigTest extends TestCase
             'sensitivity' => 'strict',
             'cache_ttl_hours' => 6,
             'timeout_ms' => 900,
+            'breaker_max_backoff_secs' => 600,
             'self_ips' => array('203.0.113.9'),
         ));
         $this->assertSame('https://mainnet.example', $c->baseUrl());
@@ -53,6 +55,7 @@ final class ConfigTest extends TestCase
         $this->assertSame('strict', $c->sensitivity());
         $this->assertSame(6, $c->cacheTtlHours());
         $this->assertSame(900, $c->timeoutMs());
+        $this->assertSame(600, $c->breakerMaxBackoffSecs());
         $this->assertSame(array('203.0.113.9'), $c->selfIps());
 
         $lenient = Config::fromArray(array('sensitivity' => 'lenient'));

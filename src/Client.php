@@ -24,6 +24,9 @@ final class Client
     const MIRROR_KEY = 'mnc:mirror';
     /** Default check window in days when a caller passes no maxAgeInDays. */
     const DEFAULT_MAX_AGE = 90;
+    /** Breaker channels: one record per upstream capability, so one capability's outage never opens the other. */
+    const CHANNEL_CHECK = 'check';
+    const CHANNEL_REPORT = 'report';
 
     /** @var Config */
     private $config;
@@ -33,8 +36,10 @@ final class Client
     private $cache;
     /** @var Reporter|null lazily built */
     private $reporter;
-    /** @var CircuitBreaker */
-    private $breaker;
+    /** @var CircuitBreaker|null an injected instance, which then serves every channel */
+    private $injectedBreaker;
+    /** @var array<string,CircuitBreaker> per-channel breakers, built from Config on first use */
+    private $breakers = array();
     /** @var callable():int */
     private $clock;
     /** @var callable(int):int TTL jitter */
@@ -45,7 +50,7 @@ final class Client
      * @param Transport|null      $transport  CurlTransport default (StreamTransport when curl absent)
      * @param Cache|null          $cache      verdict + breaker store (NullCache default)
      * @param Reporter|null       $reporter   the relocated report engine (built lazily if null)
-     * @param CircuitBreaker|null $breaker    built from Config over $cache if null
+     * @param CircuitBreaker|null $breaker    one instance for every channel; null = per-channel breakers built from Config over $cache
      * @param callable|null       $clock      callable():int epoch; defaults to time()
      * @param callable|null       $jitter     callable(int):int TTL jitter; defaults to +/-10-20%
      */
@@ -63,9 +68,7 @@ final class Client
         $this->reporter = $reporter;
         $this->clock = $clock !== null ? $clock : 'time';
         $this->jitter = $jitter !== null ? $jitter : array($this, 'defaultTtlJitter');
-        $this->breaker = $breaker !== null
-            ? $breaker
-            : new CircuitBreaker($this->cache, $config->breakerThreshold(), $config->breakerCooldownSecs(), $config->quotaParkCapSecs(), $this->clock);
+        $this->injectedBreaker = $breaker;
     }
 
     /**
@@ -86,7 +89,8 @@ final class Client
         if ($cached !== null) {
             return $cached;
         }
-        if (!$this->breaker->allow()) {
+        $breaker = $this->breaker(self::CHANNEL_CHECK);
+        if (!$breaker->allow()) {
             return CheckResult::failOpen();
         }
 
@@ -110,7 +114,7 @@ final class Client
         try {
             $res = $this->transport->get($url, $headers);
         } catch (Throwable $e) {
-            $this->breaker->recordTransportFailure();
+            $breaker->recordTransportFailure();
 
             return CheckResult::failOpen();
         }
@@ -215,18 +219,39 @@ final class Client
     }
 
     /**
-     * The shared circuit breaker, so a host running delivery on its own path (e.g. funnypot-laravel's
-     * queued job) records outages on the SAME marker the check path reads (design §4.4 N3).
+     * The breaker guarding one upstream capability. check() records on CHANNEL_CHECK and report delivery
+     * on CHANNEL_REPORT, each with its own record, so a report-ingest outage never blinds the check path
+     * (the two may be different backends one day). A host delivering reports on its own path (e.g. a
+     * queued job) records on breaker(CHANNEL_REPORT) so its outages land where drain() looks. Channels
+     * are built lazily from Config; a breaker injected at construction serves every channel instead.
      */
-    public function breaker(): CircuitBreaker
+    public function breaker(string $channel = CircuitBreaker::DEFAULT_CHANNEL): CircuitBreaker
     {
-        return $this->breaker;
+        if ($this->injectedBreaker !== null) {
+            return $this->injectedBreaker;
+        }
+        if (!isset($this->breakers[$channel])) {
+            $this->breakers[$channel] = new CircuitBreaker(
+                $this->cache,
+                $this->config->breakerThreshold(),
+                $this->config->breakerCooldownSecs(),
+                $this->config->quotaParkCapSecs(),
+                $this->clock,
+                null,
+                null,
+                $channel,
+                $this->config->breakerMaxBackoffSecs()
+            );
+        }
+
+        return $this->breakers[$channel];
     }
 
     // --- internals -------------------------------------------------------------------------------
 
     private function handleResponse(array $res, $ip, $maxAge, $sensitivity)
     {
+        $breaker = $this->breaker(self::CHANNEL_CHECK);
         $status = isset($res['status']) ? (int) $res['status'] : 0;
         $body = isset($res['body']) ? (string) $res['body'] : '';
         $headers = isset($res['headers']) && is_array($res['headers']) ? $res['headers'] : array();
@@ -235,7 +260,7 @@ final class Client
             $json = json_decode($body, true);
             if (is_array($json) && isset($json['data']) && is_array($json['data'])) {
                 $result = $this->parseData($json['data']);
-                $this->breaker->recordSuccess();
+                $breaker->recordSuccess();
                 $this->cache->set(
                     $this->verdictKey($ip, $maxAge, $sensitivity),
                     $result->toArray(),
@@ -245,19 +270,19 @@ final class Client
                 return $result;
             }
             // Malformed 200 (no data object / non-JSON) — treated as a transport-class fault.
-            $this->breaker->recordTransportFailure();
+            $breaker->recordTransportFailure();
 
             return CheckResult::failOpen();
         }
 
         if ($status === 429) {
-            $this->breaker->recordQuota($this->retryAfter($headers), $this->rateLimitReset($headers));
+            $breaker->recordQuota($this->retryAfter($headers), $this->rateLimitReset($headers));
 
             return CheckResult::failOpen();
         }
 
         if ($status === 401 || $status === 403 || ($status >= 500 && $status < 600) || $status === 0) {
-            $this->breaker->recordTransportFailure();
+            $breaker->recordTransportFailure();
 
             return CheckResult::failOpen();
         }
@@ -268,7 +293,7 @@ final class Client
         }
 
         // Anything else unexpected (3xx, 2xx non-200) — degrade to fail-open, transport-class.
-        $this->breaker->recordTransportFailure();
+        $breaker->recordTransportFailure();
 
         return CheckResult::failOpen();
     }
@@ -379,7 +404,7 @@ final class Client
             $this->config->selfIps(),
             $this->config->dailyCap(),
             $this->config->dedupHours(),
-            $this->breaker,
+            $this->breaker(self::CHANNEL_REPORT),
             $this->clock
         );
 

@@ -12,10 +12,12 @@ use Throwable;
  * the exact same protocol handling (2xx / 429-split-by-code / 4xx / 5xx) without needing a ReportQueue.
  * drain() uses this internally too; its behaviour is unchanged.
  *
- * Writes the QUOTA breaker signal itself (matches drain()'s unconditional-on-first-quota-429 behaviour).
- * Does NOT write a transport-failure signal — that needs a consecutive-failure count that is loop state,
- * owned by whichever caller has a loop (drain(), or ReportDrainCommand); a caller with no loop makes its
- * own call. 7.3-clean.
+ * Writes the QUOTA breaker signal itself (matches drain()'s unconditional-on-first-quota-429 behaviour)
+ * and the SUCCESS signal on a delivered POST, so every delivery path — not only drain() — closes the
+ * report breaker and resets its backoff once the server is answering again. Does NOT write a
+ * transport-failure signal — that needs a consecutive-failure count that is loop state, owned by
+ * whichever caller has a loop (drain(), or ReportDrainCommand); a caller with no loop makes its own
+ * call. 7.3-clean.
  */
 final class ReportSender
 {
@@ -34,7 +36,7 @@ final class ReportSender
      * @param Transport           $transport
      * @param string              $baseUrl  scheme+host only; appends /v1/report (D1)
      * @param string              $apiKey
-     * @param CircuitBreaker|null $breaker  shares the decision-N mnc:breaker marker (N6)
+     * @param CircuitBreaker|null $breaker  the report-channel breaker (N6)
      * @param callable|null       $clock    callable():int epoch; defaults to time()
      */
     public function __construct(Transport $transport, string $baseUrl, string $apiKey, ?CircuitBreaker $breaker = null, $clock = null)
@@ -68,6 +70,10 @@ final class ReportSender
         }
 
         if ($httpStatus >= 200 && $httpStatus < 300) {
+            if ($this->breaker !== null) {
+                $this->breaker->recordSuccess(); // the server is answering: close + reset the backoff curve
+            }
+
             return array('delivered' => true, 'status' => 'delivered', 'http_status' => $httpStatus, 'drop' => true, 'retry_after' => null, 'reset' => null);
         }
 

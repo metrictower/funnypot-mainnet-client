@@ -390,6 +390,7 @@ final class Config
     /** @var int    */ private $timeoutMs;          // connect+total; default 1500
     /** @var int    */ private $breakerThreshold;   // consecutive TRANSPORT faults to trip; default 5 (N2; quota trips on 1)
     /** @var int    */ private $breakerCooldownSecs;// transport-class open duration; default 60 (N canonical; ±20% jitter on write, N2)
+    /** @var int    */ private $breakerMaxBackoffSecs; // cap on an escalated open; default 1800 (doubles per consecutive trip, §4.4 revision)
     /** @var int    */ private $quotaParkCapSecs;   // ceiling for a quota-class park; default 21600 (6h, N2)
     // --- report path (carried from B) ---
     /** @var array  */ private $selfIps;            // FUNNYPOT_SELF_IPS; report inert when empty
@@ -407,7 +408,7 @@ final class Config
 
     // getters: baseUrl(), key(), checkEnabled(), failMode(), blockVerdicts(), minBlockScore(),
     //          challengeVerdicts(), sensitivity(), cacheTtlHours(), timeoutMs(), breakerThreshold(),
-    //          breakerCooldownSecs(), quotaParkCapSecs(), selfIps(), dailyCap(), dedupHours()
+    //          breakerCooldownSecs(), breakerMaxBackoffSecs(), quotaParkCapSecs(), selfIps(), dailyCap(), dedupHours()
 
     /** True when check is allowed to spend a credit: check_enabled AND key !== ''. */
     public function checkActive();   // bool
@@ -467,7 +468,8 @@ interface Cache
   **same seam** the report-suppression idea (`IDEAS.md`) would reuse.
 
 The cache stores **two kinds of key**: verdict entries (`mnc:v:{ip}:{maxAge}:{sensitivity}`) and the
-breaker state (`mnc:breaker`). Sharing one injected store means a WP host gets cross-request breaker state for free
+breaker state (`mnc:breaker` for the default channel, `mnc:breaker:<channel>` otherwise — one record per
+capability, §4.4 revision). Sharing one injected store means a WP host gets cross-request breaker state for free
 (the object cache is shared), the same property the app's SQLite-backed breaker has across php-fpm.
 
 **Persistent shared cache is REQUIRED for check-enabled operation (decision N1).** ArrayCache and
@@ -725,6 +727,26 @@ queue has a hard size cap (oldest dropped first).
 **Canonical numbers (stated once):** transport threshold `5`, transport cooldown `60s ±20%`, quota park
 = server reset time (cap `6h`), drain budget `10s` / `3` consecutive failures, drain limit `200`/tick.
 The `Config` fields carry these defaults (§3.5); any per-consumer deviation must be an explicit note.
+
+**Revision 2026-09-04 — per-channel breakers + exponential backoff.** Supersedes the "one shared marker
+across the check and report paths" reading of N1/N3/N6 above:
+
+- **Channels.** A `CircuitBreaker` guards one capability. The channel keys the record
+  (`mnc:breaker:<channel>`; `'default'` keeps the bare `mnc:breaker`) and the fallback marker
+  (`mnc_breaker_<channel>.json`). `Client::check()` uses `check`; report delivery — `drain()` and any
+  host-owned path through `ReportSender` — uses `report`. `Client::breaker($channel)` builds them lazily
+  from `Config`; a breaker injected into `Client` serves every channel (the pre-revision shape). A
+  report-ingest outage therefore no longer blinds the check path — the two may be separate backends one
+  day, and each future endpoint gets its own channel.
+- **Escalation.** The record gains `trip_count` (consecutive opens since the last success; absent reads
+  as 0). Every transport-class open — the threshold trip, `tripTransport()`, or the half-open probe
+  failing — lasts `cooldown × 2^(trip_count − 1)`, capped at `breaker_max_backoff_secs` (default `1800`),
+  then the ±20% jitter: `60 → 120 → 240 → 480 → 960 → 1800`. Trip #1 is exactly one cooldown, so a single
+  blip is unchanged. A failed probe re-trips at once instead of re-accumulating toward the threshold. A
+  headerless quota 429 parks on the same curve; a header still wins. `recordSuccess()` zeroes everything,
+  and a delivered report now records it (`ReportSender`), so the report channel ends its own outages.
+- **Stores.** `ApcuCache` (Persistent, opt-in, guarded by `isUsable()` because `apcu.enable_cli=0` is the
+  packaged default) joins `Psr16Cache` and the temp-dir marker as the cross-process options.
 
 ### 4.5 Cache read/write + TTL
 

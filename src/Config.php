@@ -31,8 +31,10 @@ final class Config
     private $timeoutMs;
     /** @var int consecutive transport faults to trip */
     private $breakerThreshold;
-    /** @var int transport-class open duration in secs */
+    /** @var int transport-class open duration in secs (the first open, and the base of the backoff curve) */
     private $breakerCooldownSecs;
+    /** @var int cap in secs on an escalated open (the window doubles per consecutive trip) */
+    private $breakerMaxBackoffSecs;
     /** @var int ceiling for a quota-class park in secs */
     private $quotaParkCapSecs;
     /** @var array optional self-IP override list (addresses that must never be reported) */
@@ -51,8 +53,8 @@ final class Config
     /**
      * @param array $opts keys mirror the fields (base_url, key, check_enabled, fail_mode, block_verdicts,
      *                    min_block_score, challenge_verdicts, sensitivity, cache_ttl_hours, timeout_ms,
-     *                    breaker_threshold, breaker_cooldown_secs, quota_park_cap_secs, self_ips,
-     *                    daily_cap, dedup_hours, intel_db_path)
+     *                    breaker_threshold, breaker_cooldown_secs, breaker_max_backoff_secs,
+     *                    quota_park_cap_secs, self_ips, daily_cap, dedup_hours, intel_db_path)
      * @return self
      */
     public static function fromArray(array $opts)
@@ -76,6 +78,7 @@ final class Config
         $c->timeoutMs = isset($opts['timeout_ms']) ? (int) $opts['timeout_ms'] : 1500;
         $c->breakerThreshold = isset($opts['breaker_threshold']) ? (int) $opts['breaker_threshold'] : 5;
         $c->breakerCooldownSecs = isset($opts['breaker_cooldown_secs']) ? (int) $opts['breaker_cooldown_secs'] : 60;
+        $c->breakerMaxBackoffSecs = isset($opts['breaker_max_backoff_secs']) ? (int) $opts['breaker_max_backoff_secs'] : 1800;
         $c->quotaParkCapSecs = isset($opts['quota_park_cap_secs']) ? (int) $opts['quota_park_cap_secs'] : 21600;
         $c->selfIps = isset($opts['self_ips']) && is_array($opts['self_ips']) ? array_values($opts['self_ips']) : array();
         $c->dailyCap = isset($opts['daily_cap']) ? (int) $opts['daily_cap'] : 1000;
@@ -143,6 +146,11 @@ final class Config
     public function breakerCooldownSecs()
     {
         return $this->breakerCooldownSecs;
+    }
+
+    public function breakerMaxBackoffSecs()
+    {
+        return $this->breakerMaxBackoffSecs;
     }
 
     public function quotaParkCapSecs()

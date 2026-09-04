@@ -5,7 +5,8 @@ namespace Funnypot\Mainnet\Cache;
 /**
  * The package's own tiny PSR-16-shaped cache seam. Kept internal so a bare 7.3 host is not forced to
  * install psr/simple-cache; a consumer that has one injects it through Psr16Cache. Stores two kinds of
- * key: verdict entries (mnc:v:*) and the circuit-breaker record (mnc:breaker).
+ * key: verdict entries (mnc:v:*) and the per-channel circuit-breaker records (mnc:breaker,
+ * mnc:breaker:<channel>).
  */
 interface Cache
 {
