@@ -10,6 +10,7 @@
         "phpunit/phpunit": "^9.5"
     },
     "suggest": {
+        "ext-apcu": "Cross-process verdict/breaker store on a bare-PHP host via ApcuCache (guard with ApcuCache::isUsable()).",
         "ext-curl": "Preferred HTTP transport; falls back to stream contexts when absent.",
         "ext-pdo_sqlite": "For the bundled PdoSqliteReportQueue (report path only).",
         "psr/simple-cache": "Inject any PSR-16 cache as the verdict/breaker store via Psr16Cache."

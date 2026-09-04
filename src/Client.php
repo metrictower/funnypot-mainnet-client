@@ -222,10 +222,12 @@ final class Client
      * The breaker guarding one upstream capability. check() records on CHANNEL_CHECK and report delivery
      * on CHANNEL_REPORT, each with its own record, so a report-ingest outage never blinds the check path
      * (the two may be different backends one day). A host delivering reports on its own path (e.g. a
-     * queued job) records on breaker(CHANNEL_REPORT) so its outages land where drain() looks. Channels
-     * are built lazily from Config; a breaker injected at construction serves every channel instead.
+     * queued job) records on breaker(CHANNEL_REPORT) so its outages land where drain() looks — and that
+     * is what a no-argument call returns, so a host gating its own delivery can never end up on a record
+     * nothing trips. Channels are built lazily from Config; a breaker injected at construction serves
+     * every channel instead.
      */
-    public function breaker(string $channel = CircuitBreaker::DEFAULT_CHANNEL): CircuitBreaker
+    public function breaker(string $channel = self::CHANNEL_REPORT): CircuitBreaker
     {
         if ($this->injectedBreaker !== null) {
             return $this->injectedBreaker;

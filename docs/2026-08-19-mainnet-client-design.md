@@ -469,8 +469,10 @@ interface Cache
 
 The cache stores **two kinds of key**: verdict entries (`mnc:v:{ip}:{maxAge}:{sensitivity}`) and the
 breaker state (`mnc:breaker` for the default channel, `mnc:breaker:<channel>` otherwise — one record per
-capability, §4.4 revision). Sharing one injected store means a WP host gets cross-request breaker state for free
-(the object cache is shared), the same property the app's SQLite-backed breaker has across php-fpm.
+capability, §4.4 revision). Sharing one injected `Persistent` store means a host gets cross-request breaker
+state for free (Laravel's cache repository via `Psr16Cache`), the same property the app's SQLite-backed
+breaker has across php-fpm. funnypot-wordpress's `WpCache` is not marked `Persistent`, so a WP host's
+breaker uses the temp-dir marker instead.
 
 **Persistent shared cache is REQUIRED for check-enabled operation (decision N1).** ArrayCache and
 NullCache are per-process; with either, breaker state (and cross-request verdict caching) would die with
@@ -671,7 +673,8 @@ a cooldown → fast-fail while open; **fail-open if its own store is unreadable 
 be the thing that breaks**) but is rewritten 7.3-clean to decision N's full contract below. It is not a
 single threshold-and-cooldown any more.
 
-**N1 — one shared marker, REQUIRED.** State is a single record
+**N1 — one shared marker, REQUIRED.** *(Superseded — one record per channel and a `trip_count` field;
+see the §4.4 revision below.)* State is a single record
 `mnc:breaker → {failures:int, until:epoch, reason:'transport'|'quota'}` in the injected persistent
 `Cache`. **Check-enabled operation REQUIRES a persistent cross-request cache** (§3.6): with a
 per-process cache (ArrayCache/NullCache) breaker state dies with the request, failures never
@@ -704,7 +707,8 @@ OPEN    ── now >= until  (half-open, single-flight)   ─► the FIRST calle
                                                           failure → OPEN for another cooldown
 ```
 
-**N3 — while OPEN.** Every check fast-fails `CheckResult(source='fail-open', verdict='unknown')` with
+**N3 — while OPEN.** *(Superseded — the check and report paths no longer share one marker; see the §4.4
+revision below.)* Every check fast-fails `CheckResult(source='fail-open', verdict='unknown')` with
 **zero socket work**; the report drain consults the same marker before its first POST and **skips the
 tick** while OPEN (shared outage discovery across the check and report paths). `ReputationGate` maps the
 fail-open per `fail_mode` — and per §4.3/SF-3, `fail_mode=closed` applies **only** to genuine
@@ -719,10 +723,11 @@ OPEN for another cooldown. This kills the herd of concurrent 1.5 s probes at eve
 treated as **CLOSED / allow** (fail-open). Under `fail_mode=open` the breaker's output is always allow;
 under `closed` it is the operator's explicit uncertainty policy, subject to N3's inert/422 carve-outs.
 
-**N6 — drain-side budget** (spec'd in the Reporter, §4.7): a report drain tick has a wall-clock budget
-(`10s`) and aborts after `3` consecutive transport-class failures, writing the shared `mnc:breaker`
-marker so the next tick and the check path fast-skip; re-queued rows carry attempts/age caps and the
-queue has a hard size cap (oldest dropped first).
+**N6 — drain-side budget** (spec'd in the Reporter, §4.7): *(Superseded in part — the abort writes the
+`report` channel's record, which the check path does not read; see the §4.4 revision below.)* a report
+drain tick has a wall-clock budget (`10s`) and aborts after `3` consecutive transport-class failures,
+writing the shared `mnc:breaker` marker so the next tick and the check path fast-skip; re-queued rows
+carry attempts/age caps and the queue has a hard size cap (oldest dropped first).
 
 **Canonical numbers (stated once):** transport threshold `5`, transport cooldown `60s ±20%`, quota park
 = server reset time (cap `6h`), drain budget `10s` / `3` consecutive failures, drain limit `200`/tick.
@@ -735,7 +740,9 @@ across the check and report paths" reading of N1/N3/N6 above:
   (`mnc:breaker:<channel>`; `'default'` keeps the bare `mnc:breaker`) and the fallback marker
   (`mnc_breaker_<channel>.json`). `Client::check()` uses `check`; report delivery — `drain()` and any
   host-owned path through `ReportSender` — uses `report`. `Client::breaker($channel)` builds them lazily
-  from `Config`; a breaker injected into `Client` serves every channel (the pre-revision shape). A
+  from `Config` (no argument means `report`, the host-delivery case, so a host gating its own delivery
+  never lands on a record nothing trips); a breaker injected into `Client` serves every channel (the
+  pre-revision shape). A
   report-ingest outage therefore no longer blinds the check path — the two may be separate backends one
   day, and each future endpoint gets its own channel.
 - **Escalation.** The record gains `trip_count` (consecutive opens since the last success; absent reads
@@ -819,7 +826,8 @@ mirror lookup (§3.2), so report and lookup speak the same `score_key`.
   - `5xx` / transport (status 0) → transport-class failure: bump attempts, drop at `>= 3`.
 - **N6 drain-side budget:** a tick has a wall-clock budget (`10s`) and **aborts after 3 consecutive
   transport-class failures**, writing the shared `mnc:breaker` marker so the next tick **and the check
-  path** fast-skip (shared outage discovery, N3). The drain **consults `mnc:breaker` before its first
+  path** fast-skip (shared outage discovery, N3 — superseded: the abort now opens the `report` channel
+  only, see the §4.4 revision). The drain **consults `mnc:breaker` before its first
   POST** and skips the tick while OPEN. This bounds an outage's cost to one budgeted tick instead of
   `200 × timeout` seconds — critical where the drain runs inside a loopback WP-Cron request.
 - **Bounded re-queue:** re-queued rows carry **attempts + age caps**, and the queue has a **hard size

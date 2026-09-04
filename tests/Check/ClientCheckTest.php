@@ -298,7 +298,7 @@ final class ClientCheckTest extends TestCase
         $report = $client->breaker(Client::CHANNEL_REPORT);
         $this->assertTrue($report->allow(), 'the report channel is untouched by a check outage');
         $this->assertSame(0, $report->tripCount());
-        $this->assertTrue($client->breaker()->allow(), 'and so is the default channel');
+        $this->assertSame($report, $client->breaker(), 'a no-argument breaker() is the report channel, not an orphan record');
     }
 
     public function test_an_injected_breaker_serves_every_channel()

@@ -67,7 +67,7 @@ $client = new Client($config, null, $cache);  // inject a Cache to enable cached
 | `report($ip, $comment, $categories, $signals)` | enqueue | none | Guards + dedups, then **queues** an abuse report. Returns `['queued'=>bool, 'reason'=>string]`. |
 | `drain($limit)` | out-of-band | opens sockets | **The other half of `report()`.** Delivers queued rows. Budgeted and breaker-aware. Returns `['sent'=>int,'failed'=>int,'pending'=>int]`. |
 | `queuedReports()` | anywhere | none | Rows waiting for delivery. |
-| `breaker($channel)` | anywhere | none | The per-channel `CircuitBreaker` (`Client::CHANNEL_CHECK`, `Client::CHANNEL_REPORT`). A host that delivers reports on its own path (not via `drain()`) records on `breaker(Client::CHANNEL_REPORT)` so its outages land where `drain()` looks. |
+| `breaker($channel = Client::CHANNEL_REPORT)` | anywhere | none | The per-channel `CircuitBreaker` (`Client::CHANNEL_CHECK`, `Client::CHANNEL_REPORT`). A host that delivers reports on its own path (not via `drain()`) records on `breaker(Client::CHANNEL_REPORT)` — the no-argument default — so its outages land where `drain()` looks. |
 
 The `check()` / `cachedVerdict()` split is the load-bearing seam: the request path only ever reads
 already-resolved verdicts, so it never waits on the network.
@@ -125,8 +125,9 @@ if ($decision->isBlock()) {
   old flat cooldown.
 - **One breaker per channel.** `check()` and report delivery keep separate records
   (`Client::CHANNEL_CHECK` / `Client::CHANNEL_REPORT`), so a struggling report ingest never blinds
-  reputation checks, and vice versa. `$client->breaker($channel)` returns them; a `CircuitBreaker`
-  injected into the `Client` constructor serves every channel instead (one shared record).
+  reputation checks, and vice versa. `$client->breaker($channel)` returns them (no argument means the
+  report channel); a `CircuitBreaker` injected into the `Client` constructor serves every channel
+  instead (one shared record).
 
 ### Breaker state across processes
 
@@ -134,9 +135,9 @@ PHP is shared-nothing, so the outage record has to live somewhere every worker c
 
 | Store | When | How |
 |---|---|---|
-| Framework cache (Redis, Memcached, DB) | Laravel / WordPress hosts | Inject it via `Psr16Cache` — funnypot-laravel and funnypot-wordpress already do. Every worker and queue process shares the record instantly. |
+| Framework cache (Redis, Memcached, DB) | Laravel hosts | Inject it via `Psr16Cache` — funnypot-laravel already does. Every worker and queue process shares the record instantly. |
 | APCu | Bare-PHP hosts behind php-fpm | `ApcuCache::isUsable() ? new ApcuCache() : null` as the `Client`'s cache. Shared across the fpm pool; opt-in, never auto-selected. |
-| Temp-dir marker | Everything else, and any CLI with APCu off | Automatic: with no `Persistent` cache the breaker writes `mnc_breaker_<channel>.json` under `sys_get_temp_dir()`. |
+| Temp-dir marker | Everything else — WordPress hosts included (its `WpCache` is not marked `Persistent`), and any CLI with APCu off | Automatic: with no `Persistent` cache the breaker writes `mnc_breaker_<channel>.json` under `sys_get_temp_dir()`. |
 
 Guard APCu with `isUsable()` rather than constructing it unconditionally: `apcu.enable_cli=0` is the
 packaged default, so a cron drain would otherwise hold an inert cache while php-fpm holds a live one,
